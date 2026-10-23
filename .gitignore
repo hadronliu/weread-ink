@@ -10,3 +10,4 @@
 # 本地生成的预览图（docs/ 下有归档版本）
 /sample.png
 /dashboard.png
+.DS_Store
