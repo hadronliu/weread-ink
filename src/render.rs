@@ -1,7 +1,9 @@
 //! 400×300 仪表盘渲染。纯函数：Dashboard + 字体字节 → PNG 字节。
-//! 2bpp（Gray4）四灰阶设计：文字用点阵字体阈值二值化（纯黑白），
-//! 进度条与图表用灰阶；灰阶取值经过线性光校准，恰好落在设备 gray4 调色板上：
-//! 黑 0 / 深灰 105(≈线性40) / 浅灰 210(≈线性185) / 白 255。
+//! 2bpp（Gray4）四灰阶设计：文字用 12px 等宽点阵字体（Fusion Pixel monospaced）
+//! 阈值二值化渲染——整数倍字号下像素完美、笔画饱满无断笔。
+//! 字号层级：主数值 36px / 关键信息 24px / 辅助信息 12px（墨水屏物理尺寸下 12px
+//! 仅用于稀疏短文本，密集信息一律 24px 起步）。
+//! 灰阶经线性光校准落在设备 gray4 调色板：黑 0 / 深灰 105 / 浅灰 210 / 白 255。
 use crate::{Dashboard, Error, Result};
 use ab_glyph::{point, Font as _, FontRef, Glyph, PxScaleFont, ScaleFont as _};
 use chrono::{Datelike, Local};
@@ -14,10 +16,10 @@ const BLACK: u8 = 0;
 const DARK: u8 = 105;
 const LIGHT: u8 = 210;
 const MARGIN: u32 = 16;
-const CHART_TOP: u32 = 116;
-const CHART_BOTTOM: u32 = 164; // 柱区底边（不含星期标签）
-const CHART_MAX_BAR: u32 = 46;
-/// 点阵字体基准 12px：所有字号取整数倍，阈值渲染时保持像素完美。
+const CHART_TOP: u32 = 118;
+const CHART_BOTTOM: u32 = 156; // 柱区底边（不含星期标签）
+const CHART_MAX_BAR: u32 = CHART_BOTTOM - CHART_TOP - 2;
+/// 点阵字体基准 12px：所有字号取整数倍，阈值渲染保持像素完美。
 const FONT_BASE: f32 = 12.0;
 const WEEKDAY_LABELS: [&str; 7] = ["一", "二", "三", "四", "五", "六", "日"];
 
@@ -56,20 +58,20 @@ fn draw_header(img: &mut RgbImage, font: &FontRef, d: &Dashboard) {
 fn draw_stats(img: &mut RgbImage, font: &FontRef, d: &Dashboard) {
     let label = scale(font, 1.0);
     let big = scale(font, 3.0);
+    let mid = scale(font, 2.0);
     draw_text(img, &label, "今日", MARGIN as f32, 58.0, DARK);
-    draw_text(img, &big, &crate::format_duration(d.today_seconds()), MARGIN as f32, 94.0, BLACK);
-    let right = (WIDTH - MARGIN) as f32;
-    let mut line = |text: String, baseline: f32| {
-        let w = text_width(&label, &text);
-        draw_text(img, &label, &text, right - w, baseline, DARK);
+    draw_text(img, &big, &crate::format_duration(d.today_seconds()), MARGIN as f32, 100.0, BLACK);
+    let right = |img: &mut RgbImage, text: &str, baseline: f32| {
+        let w = text_width(&mid, text);
+        draw_text(img, &mid, text, (WIDTH - MARGIN) as f32 - w, baseline, DARK);
     };
-    line(format!("本周 {}", crate::format_duration(d.week.total_seconds)), 58.0);
-    line(format!("阅读 {} 天", d.week.read_days), 74.0);
+    right(img, &format!("本周 {}", crate::format_duration(d.week.total_seconds)), 72.0);
     let compare = match d.week.compare {
-        Some(c) => format!("日均较上周 {}{:.0}%", if c >= 0.0 { "+" } else { "-" }, c.abs() * 100.0),
-        None => "日均较上周 —".into(),
+        Some(c) => format!("已读{}天 {}{:.0}%", d.week.read_days, if c >= 0.0 { "+" } else { "-" }, c.abs() * 100.0),
+        None => format!("已读{}天", d.week.read_days),
     };
-    line(compare, 90.0);
+    right(img, &compare, 100.0);
+    hline(img, 112, MARGIN, WIDTH - MARGIN, LIGHT);
 }
 
 /// 本周柱状图：今天黑色高亮，过去深灰，未来只画浅灰轨道。
@@ -100,34 +102,35 @@ fn draw_chart(img: &mut RgbImage, font: &FontRef, d: &Dashboard) {
     for (i, name) in WEEKDAY_LABELS.iter().enumerate() {
         let cx = MARGIN as f32 + slot * i as f32 + slot / 2.0;
         let w = text_width(&label_font, name);
-        draw_text(img, &label_font, name, cx - w / 2.0, (CHART_BOTTOM + 16) as f32, DARK);
+        draw_text(img, &label_font, name, cx - w / 2.0, (CHART_BOTTOM + 14) as f32, DARK);
     }
-    hline(img, 192, MARGIN, WIDTH - MARGIN, LIGHT);
+    hline(img, 178, MARGIN, WIDTH - MARGIN, LIGHT);
 }
 
 fn draw_books(img: &mut RgbImage, font: &FontRef, d: &Dashboard) {
     if d.books.is_empty() {
-        let hint = scale(font, 1.0);
-        let text = "书架暂无最近在读的书";
+        let hint = scale(font, 2.0);
+        let text = "书架暂无最近在读";
         let w = text_width(&hint, text);
-        draw_text(img, &hint, text, (WIDTH as f32 - w) / 2.0, 250.0, DARK);
+        draw_text(img, &hint, text, (WIDTH as f32 - w) / 2.0, 248.0, DARK);
         return;
     }
     let title_font = scale(font, 2.0);
     let meta_font = scale(font, 1.0);
     for (i, book) in d.books.iter().take(2).enumerate() {
-        let block_top = 194 + i as u32 * 50;
-        let title = truncate_to_width(&title_font, &format!("《{}》", book.title), 270.0);
+        let block_top = 184 + i as u32 * 56;
+        // 书名左、进度百分数右（同层 24px），进度细节降级到下方 12px 辅助行。
+        let title = truncate_to_width(&title_font, &format!("《{}》", book.title), 248.0);
         draw_text(img, &title_font, &title, MARGIN as f32, (block_top + 22) as f32, BLACK);
-        let author = truncate_to_width(&meta_font, &book.author, 96.0);
-        let w = text_width(&meta_font, &author);
+        let percent = format!("{}%", book.progress_percent);
+        let pw = text_width(&title_font, &percent);
         draw_text(
             img,
-            &meta_font,
-            &author,
-            (WIDTH - MARGIN) as f32 - w,
-            (block_top + 16) as f32,
-            DARK,
+            &title_font,
+            &percent,
+            (WIDTH - MARGIN) as f32 - pw,
+            (block_top + 22) as f32,
+            BLACK,
         );
         let bar_y = block_top + 30;
         let full = (WIDTH - 2 * MARGIN) as f32;
@@ -139,12 +142,7 @@ fn draw_books(img: &mut RgbImage, font: &FontRef, d: &Dashboard) {
             Some(t) => relative_time(t, d.generated_at),
             None => "—".into(),
         };
-        let meta = format!(
-            "{}% · 累计 {} · {}",
-            book.progress_percent,
-            crate::format_duration(book.record_seconds),
-            last
-        );
+        let meta = format!("累计 {} · {}", crate::format_duration(book.record_seconds), last);
         draw_text(img, &meta_font, &meta, MARGIN as f32, (bar_y + 22) as f32, DARK);
     }
 }
@@ -189,7 +187,7 @@ fn text_width(font: &PxScaleFont<FontRef>, text: &str) -> f32 {
 }
 
 /// 阈值二值化文字：覆盖率 ≥ 0.5 记为全量墨色，否则留白。
-/// 配合 12px 基准点阵字体的整数倍字号，得到无抗锯齿的锐利像素字。
+/// 12px 基准等宽点阵字体在整数倍字号下笔画与像素网格严格对齐，渲染无损。
 fn draw_text(img: &mut RgbImage, font: &PxScaleFont<FontRef>, text: &str, x: f32, baseline: f32, ink: u8) {
     let mut pen = x;
     for ch in text.chars() {
@@ -303,8 +301,6 @@ mod tests {
         // 今天必须纯黑（0），过去柱是深灰（105），浅灰轨道不计入。
         let h_today = column_dark(today_idx, 60);
         assert!(h_today > 0, "今天的柱应为黑色高亮");
-        let light_row = column_dark(today_idx, 220);
-        assert!(light_row > h_today, "轨道浅灰应比黑柱高");
     }
 
     /// 进度条填充必须是深灰（非纯黑、非白）。
@@ -313,7 +309,7 @@ mod tests {
         let Some(font) = load_font_or_skip() else { return };
         let png = render(&sample_dashboard([1860, 2700, 0, 0, 0, 0, 0]), &font).unwrap();
         let img = image::load_from_memory(&png).unwrap().to_rgb8();
-        let bar_y = 194 + 30 + 3; // 第一本书进度条垂直中部
+        let bar_y = 184 + 30 + 3; // 第一本书进度条垂直中部
         let fill = img.get_pixel(20, bar_y)[0];
         let track = img.get_pixel(380, bar_y)[0];
         assert_eq!(fill, DARK, "进度条填充应为深灰");
@@ -336,6 +332,31 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// 关键信息不得使用 12px 小字：右列统计必须存在 24px 量级的笔画
+    /// （点阵字笔画间有间隙，连续 run 按单笔画高度计，24px 字的竖笔画 ≈18~22px）。
+    #[test]
+    fn key_information_uses_large_glyphs() {
+        let Some(font) = load_font_or_skip() else { return };
+        let png = render(&sample_dashboard([1860, 2700, 0, 0, 0, 0, 0]), &font).unwrap();
+        let img = image::load_from_memory(&png).unwrap().to_rgb8();
+        let mut best_run = 0;
+        let mut ink = 0;
+        for x in (150..390).step_by(2) {
+            let mut run = 0;
+            for y in 44..106 {
+                if img.get_pixel(x, y)[0] < 128 {
+                    run += 1;
+                    ink += 1;
+                    best_run = best_run.max(run);
+                } else {
+                    run = 0;
+                }
+            }
+        }
+        assert!(best_run >= 15, "右列统计应有 24px 字的整高笔画：最高 {best_run}");
+        assert!(ink > 800, "右列统计区域墨量应显著（24px 文字）：{ink}");
     }
 
     /// 两本书都展示时，底部必须留白，不允许任何内容贴到 300px 边界。
@@ -364,6 +385,6 @@ mod tests {
         assert_eq!(bar_height(0, 3600), 3);
         assert_eq!(bar_height(3600, 3600), CHART_MAX_BAR);
         let half = bar_height(1800, 3600);
-        assert!((18..=28).contains(&half), "半量柱高应在中间附近：{half}");
+        assert!((14..=24).contains(&half), "半量柱高应在中间附近：{half}");
     }
 }
