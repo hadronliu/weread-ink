@@ -1,0 +1,12 @@
+# 构建产物
+/target
+
+# 本机私密配置（含 API Key，绝不入库）
+.env
+
+# 运行日志
+*.log
+
+# 本地生成的预览图（docs/ 下有归档版本）
+/sample.png
+/dashboard.png

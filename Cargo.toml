@@ -1,0 +1,27 @@
+[package]
+name = "weread-ink"
+version = "0.2.0"
+edition = "2021"
+license = "MIT"
+description = "微信读书阅读统计 → 400×300 墨水屏仪表盘（点阵字体 + 2bpp 灰阶 + Zectrix 推屏）"
+repository = "https://github.com/你的用户名/weread-ink"
+
+[dependencies]
+# 默认按同级目录的路径依赖；公开使用可改为：
+# zectrix-sdk = { git = "https://github.com/itopinion/zectrix-local-push-sdk" }
+zectrix-sdk = { path = "../zectrix-local-push-sdk" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde_json = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+thiserror = "2"
+image = { version = "0.25", default-features = false, features = ["png"] }
+ab_glyph = "0.2"
+
+[[bin]]
+name = "weread-ink"
+path = "src/bin/weread_ink.rs"
+
+[[example]]
+name = "sample"
+path = "examples/sample.rs"

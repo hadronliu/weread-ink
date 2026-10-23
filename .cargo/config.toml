@@ -1,0 +1,3 @@
+# zectrix-sdk 的 opus 依赖用 cmake 构建，新 cmake 需要此下限声明
+[env]
+CMAKE_POLICY_VERSION_MINIMUM = "3.5"
