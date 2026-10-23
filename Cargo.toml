@@ -4,7 +4,7 @@ version = "0.2.0"
 edition = "2021"
 license = "MIT"
 description = "微信读书阅读统计 → 400×300 墨水屏仪表盘（点阵字体 + 2bpp 灰阶 + Zectrix 推屏）"
-repository = "https://github.com/你的用户名/weread-ink"
+repository = "https://github.com/hadronliu/weread-ink"
 
 [dependencies]
 # 默认按同级目录的路径依赖；公开使用可改为：
